@@ -64,6 +64,14 @@ namespace Aeroverra.StreamDeck.NestControl.Actions
 
         public override async Task KeyUpAsync(int userDesiredState)
         {
+            if (_disposed)
+            {
+                return;
+            }
+
+            var heldFor = GetKeyHoldDuration();
+            _keyDownAt = DateTime.MinValue;
+
             await RunExclusiveAsync(async () =>
             {
                 if (!TryGetConfiguredDevice(out var deviceMissingMessage))
@@ -80,8 +88,6 @@ namespace Aeroverra.StreamDeck.NestControl.Actions
                 }
 
                 var holdDuration = TimeSpan.FromSeconds(PresetConfiguration.GetHoldSeconds(Context.Settings));
-                var heldFor = GetKeyHoldDuration();
-                _keyDownAt = DateTime.MinValue;
 
                 if (heldFor >= holdDuration)
                 {
@@ -244,6 +250,7 @@ namespace Aeroverra.StreamDeck.NestControl.Actions
                 }
 
                 mode = ThermostatMode.HEAT;
+                _thermostat.SetLocalThermostatMode(ThermostatMode.HEAT);
             }
 
             var (heatCelsius, coolCelsius) = PresetConfiguration.ToCelsiusTargets(mode, preset, scale);

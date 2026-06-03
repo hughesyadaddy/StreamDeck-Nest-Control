@@ -32,6 +32,20 @@ namespace Aeroverra.StreamDeck.NestControl.Services.Nest.Extensions
             return false;
         }
 
+        public static void SetLocalThermostatMode(this GoogleHomeEnterpriseSdmV1Device device, ThermostatMode mode)
+        {
+            if (device.Traits.TryGetTrait<ThermostatModeTrait>(NestConstants.TRAIT_THERMOSTAT_MODE, out var trait))
+            {
+                trait.Mode = mode;
+                return;
+            }
+
+            device.Traits[NestConstants.TRAIT_THERMOSTAT_MODE] = new ThermostatModeTrait
+            {
+                Mode = mode
+            };
+        }
+
         public static ThermostatSetpointTrait GetThermostatSetPoint(this GoogleHomeEnterpriseSdmV1Device device)
         {
             return device.Traits.GetTrait<ThermostatSetpointTrait>(NestConstants.TRAIT_THERMOSTAT_SETPOINT);
