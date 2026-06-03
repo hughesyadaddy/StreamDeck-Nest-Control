@@ -71,50 +71,68 @@ namespace Aeroverra.StreamDeck.NestControl.Services.Nest
 
                 GoogleHomeEnterpriseSdmV1ListDevicesResponse response = await service.Enterprises.Devices.List($"enterprises/{ProjectId}").ExecuteAsync(cancellationToken);
 
-                if (response?.Devices == null)
+                var devices = response?.Devices ?? new List<GoogleHomeEnterpriseSdmV1Device>();
+                DeviceDictionary = devices
+                    .Where(d => !string.IsNullOrWhiteSpace(d.Name))
+                    .ToDictionary(x => x.Name!, x => x);
+
+                if (devices.Count == 0)
                 {
-                    var msg = "Google did not return devices (empty response).";
-                    _ = Communication.LogAsync(LogLevel.Critical, msg);
-                    throw new Exception(msg);
+                    logger.LogWarning(
+                        "Nest SDM API returned zero devices for project {ProjectId}. Re-run Setup and grant thermostat access.",
+                        ProjectId);
                 }
 
-                DeviceDictionary = response.Devices.ToDictionary(x => x.Name!, x => x);
-                var t = response.Devices.First();
-                //all the bs i had to look up and sort through (minus the useless stuff) to put this together
-                //along with a little guessing because
-                //google has no documentation on oauth pubsub C#
-                //https://console.cloud.google.com/home/dashboard
-                //https://grpc.github.io/grpc/csharp/api/Grpc.Auth.GoogleGrpcCredentials.html
-                //https://stackoverflow.com/questions/71437035/google-googleapiexception-google-apis-requests-requesterror-request-had-insuff
-                //https://stackoverflow.com/questions/45806451/authenticate-for-google-cloud-pubsub-using-parameters-from-a-config-file-in-c-n
+                logger.LogInformation(
+                    "Nest connected. Loaded {DeviceCount} device(s), {ThermostatCount} thermostat(s).",
+                    DeviceDictionary.Count,
+                    DeviceDictionary.Values.Count(d => d.Type == NestConstants.DEVICE_TYPE_THERMOSTAT));
 
+                OnConnected?.Invoke(this, EventArgs.Empty);
+
+                foreach (var device in DeviceDictionary.Values)
+                {
+                    OnDeviceUpdated?.Invoke(this, device);
+                }
+
+                await StartPubSubSubscriberAsync(cancellationToken);
+            }
+            catch (Exception e)
+            {
+                var msg = $"Nest connection failed: {e.Message}";
+                _ = Communication.LogAsync(LogLevel.Critical, msg);
+                logger.LogError(e, "Nest connection failed.");
+                throw;
+            }
+        }
+
+        private async Task StartPubSubSubscriberAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
                 SubscriptionName subscriptionName;
 
                 if (SubscriptionId == null)
                 {
-                    // Create a PublisherServiceApiClient to list topics
                     PublisherServiceApiClientBuilder pubBuilder = new PublisherServiceApiClientBuilder
                     {
                         ChannelCredentials = _credentials?.ToChannelCredentials()
                     };
                     PublisherServiceApiClient pubClient = await pubBuilder.BuildAsync(cancellationToken);
-
-                    // List topics in the project
                     var topics = pubClient.ListTopics(new ProjectName(CloudProjectId!));
 
-                    if(topics.Count() > 1)
-                        throw new Exception($"User has more than 1 Pub/Sub topic");
+                    if (topics.Count() > 1)
+                    {
+                        throw new InvalidOperationException("More than one Pub/Sub topic exists in the Cloud project. Nest Control expects a single topic.");
+                    }
 
-                    var topic = topics.FirstOrDefault();
+                    var topic = topics.FirstOrDefault()
+                        ?? throw new InvalidOperationException($"No Pub/Sub topic found in Cloud project {CloudProjectId}.");
 
-                    if (topic == null)
-                        throw new Exception($"No Pub/Sub topics found in project {CloudProjectId}. Please create a topic for Nest Device Access.");
-
-
-                    SubscriptionId = $"Aeroverra_StreamDeck";
+                    SubscriptionId = "Aeroverra_StreamDeck";
                     subscriptionName = new SubscriptionName(CloudProjectId, SubscriptionId);
 
-                    SubscriberServiceApiClientBuilder builder = new SubscriberServiceApiClientBuilder()
+                    SubscriberServiceApiClientBuilder builder = new SubscriberServiceApiClientBuilder
                     {
                         ChannelCredentials = _credentials?.ToChannelCredentials()
                     };
@@ -125,15 +143,19 @@ namespace Aeroverra.StreamDeck.NestControl.Services.Nest
                     {
                         existingSubscription = await subscriberService.GetSubscriptionAsync(subscriptionName, cancellationToken);
                     }
-                    catch (Grpc.Core.RpcException e)
+                    catch (Grpc.Core.RpcException rpcException) when (!rpcException.Message.Contains("Resource not found", StringComparison.Ordinal))
                     {
-                        if (e.Message.Contains("Resource not found") == false)
-                            throw;
+                        throw;
                     }
 
                     if (existingSubscription == null)
                     {
-                        existingSubscription = await subscriberService.CreateSubscriptionAsync(subscriptionName, topic.TopicName, pushConfig: null, ackDeadlineSeconds: 60, cancellationToken);
+                        await subscriberService.CreateSubscriptionAsync(
+                            subscriptionName,
+                            topic.TopicName,
+                            pushConfig: null,
+                            ackDeadlineSeconds: 60,
+                            cancellationToken);
                     }
                 }
                 else
@@ -141,30 +163,20 @@ namespace Aeroverra.StreamDeck.NestControl.Services.Nest
                     subscriptionName = new SubscriptionName(CloudProjectId, SubscriptionId);
                 }
 
-                SubscriberClientBuilder clientBuilder = new SubscriberClientBuilder()
+                SubscriberClientBuilder clientBuilder = new SubscriberClientBuilder
                 {
                     ChannelCredentials = _credentials?.ToChannelCredentials(),
                     SubscriptionName = subscriptionName,
                 };
 
                 SubscriberClient = await clientBuilder.BuildAsync(cancellationToken);
-
-                // Start the subscriber listening for messages.
-                _=  SubscriberClient.StartAsync(OnRecievePubSubMessage);
-
-                OnConnected?.Invoke(this, EventArgs.Empty);
-
-                foreach(var device in DeviceDictionary.Values)
-                {
-                    OnDeviceUpdated?.Invoke(this, device);
-                }
-
+                _ = SubscriberClient.StartAsync(OnRecievePubSubMessage);
             }
-            catch (Exception e)
+            catch (Exception ex)
             {
-                var msg = $"Google did not return devices\r\n{e}";
-                _ = Communication.LogAsync(LogLevel.Critical, msg);
-                throw;
+                logger.LogWarning(
+                    ex,
+                    "Pub/Sub listener could not start. Thermostat list is available, but live key updates may not work until Pub/Sub is configured.");
             }
         }
 

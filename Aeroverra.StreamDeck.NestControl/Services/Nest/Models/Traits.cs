@@ -1,58 +1,86 @@
-﻿namespace Aeroverra.StreamDeck.NestControl.Services.Nest.Models
-{
-    using Newtonsoft.Json.Linq;
-    using System.Text.Json;
-    using System.Text.Json.Serialization;
+﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
+namespace Aeroverra.StreamDeck.NestControl.Services.Nest.Models
+{
     public static class TraitExtensions
     {
-        // Helper to extract a strong type from the "Traits" dictionary
-        public static T GetTrait<T>(this IDictionary<string, object> traits, string traitName)
+        public static bool TryGetTrait<T>(this IDictionary<string, object> traits, string traitName, out T trait)
+            where T : class
         {
-            if (traits.TryGetValue(traitName, out var value))
+            trait = null!;
+            if (!traits.TryGetValue(traitName, out var value))
             {
-                // Case 1: System.Text.Json (What you coded for)
-                if (value is JsonElement element)
-                {
-                    return element.Deserialize<T>();
-                }
-
-                // Case 2: Newtonsoft.Json (What the debugger actually sees)
-                if (value is JObject jObject)
-                {
-                    return jObject.ToObject<T>();
-                }
-
-                // Case 3: It's already the strong type (Rare, but possible)
-                if (value is T typedValue)
-                {
-                    return typedValue;
-                }
+                return false;
             }
-            return default;
+
+            if (value is JsonElement element)
+            {
+                var deserialized = System.Text.Json.JsonSerializer.Deserialize<T>(element);
+                if (deserialized is null)
+                {
+                    return false;
+                }
+
+                trait = deserialized;
+                return true;
+            }
+
+            if (value is JObject jObject)
+            {
+                var deserialized = jObject.ToObject<T>();
+                if (deserialized is null)
+                {
+                    return false;
+                }
+
+                trait = deserialized;
+                return true;
+            }
+
+            if (value is T typedValue)
+            {
+                trait = typedValue;
+                return true;
+            }
+
+            return false;
+        }
+
+        public static T GetTrait<T>(this IDictionary<string, object> traits, string traitName)
+            where T : class
+        {
+            if (!traits.TryGetTrait(traitName, out T trait))
+            {
+                throw new KeyNotFoundException($"Device trait '{traitName}' was not found.");
+            }
+
+            return trait;
         }
     }
-    // Trait: "sdm.devices.traits.Info"
+
     public class DeviceInfoTrait
     {
         [JsonPropertyName("customName")]
-        public string CustomName { get; set; }
+        [JsonProperty("customName")]
+        public string CustomName { get; set; } = string.Empty;
     }
 
-    // Trait: "sdm.devices.traits.Connectivity"
     public class ConnectivityTrait
     {
         [JsonPropertyName("status")]
-        public string Status { get; set; } // "ONLINE", "OFFLINE"
+        public string Status { get; set; } = string.Empty;
     }
-    // Trait: "sdm.devices.traits.ThermostatMode"
+
     public class ThermostatModeTrait
     {
         [JsonPropertyName("mode")]
-        public ThermostatMode Mode { get; set; } // "HEAT", "COOL", "HEATCOOL", "OFF"
+        public ThermostatMode Mode { get; set; }
 
         [JsonPropertyName("availableModes")]
-        public string[] AvailableModes { get; set; }
+        public string[] AvailableModes { get; set; } = Array.Empty<string>();
     }
 
     public enum ThermostatMode
@@ -60,7 +88,6 @@
         OFF, COOL, HEAT, HEATCOOL
     }
 
-    // Trait: "sdm.devices.traits.ThermostatTemperatureSetpoint"
     public class ThermostatSetpointTrait
     {
         [JsonPropertyName("heatCelsius")]
@@ -70,25 +97,28 @@
         public decimal CoolCelsius { get; set; }
     }
 
-    // Trait: "sdm.devices.traits.Temperature"
     public class TemperatureTrait
     {
         [JsonPropertyName("ambientTemperatureCelsius")]
         public decimal AmbientTemperatureCelsius { get; set; }
     }
-    // Trait: "sdm.devices.traits.CameraMotion"
-    public class CameraMotionTrait
+
+    public class SettingsTrait
     {
-        // Events often just send an empty object "{}" to signify the event occurred,
-        // or sometimes an ID depending on the specific event version.
-        [JsonPropertyName("eventSessionId")]
-        public string EventSessionId { get; set; }
+        [JsonPropertyName("temperatureScale")]
+        [JsonProperty("temperatureScale")]
+        public string TemperatureScale { get; set; } = "FAHRENHEIT";
     }
 
-    // Trait: "sdm.devices.traits.CameraPerson"
+    public class CameraMotionTrait
+    {
+        [JsonPropertyName("eventSessionId")]
+        public string EventSessionId { get; set; } = string.Empty;
+    }
+
     public class CameraPersonTrait
     {
         [JsonPropertyName("eventSessionId")]
-        public string EventSessionId { get; set; }
+        public string EventSessionId { get; set; } = string.Empty;
     }
 }

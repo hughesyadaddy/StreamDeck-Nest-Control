@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no,minimal-ui,viewport-fit=cover">
+    <meta name=apple-mobile-web-app-capable content=yes>
+    <meta name=apple-mobile-web-app-status-bar-style content=black>
+    <title>Temperature Presets</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/barraider/streamdeck-easypi@latest/src/sdpi.css">
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
+    <script src="easypi.js"></script>
+    <style>
+        .preset-editor {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            width: 100%;
+        }
+
+        .preset-rows {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            max-height: 220px;
+            overflow-y: auto;
+            padding-right: 2px;
+        }
+
+        .preset-row {
+            display: grid;
+            grid-template-columns: 1.4rem 1fr auto auto;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .preset-row-index {
+            color: var(--sdpi-color, #969696);
+            font-size: 11px;
+            text-align: right;
+        }
+
+        .preset-row .preset-temp {
+            width: 100%;
+            min-width: 0;
+            margin: 0;
+        }
+
+        .preset-row-suffix {
+            color: var(--sdpi-color, #969696);
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        .preset-row--invalid .preset-temp {
+            outline: 1px solid #e25241;
+            outline-offset: 0;
+        }
+
+        .preset-remove {
+            width: 28px;
+            height: 28px;
+            min-width: 28px;
+            padding: 0;
+            line-height: 1;
+            font-size: 18px;
+        }
+
+        .preset-editor-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #addPresetBtn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .preset-validation {
+            margin: 0;
+            color: #e25241;
+            font-size: 11px;
+            line-height: 1.35;
+        }
+
+        .preset-hint {
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+    <input type="text" style="display: none" id="wow" />
+    <div class="sdpi-item" id="dvInstructions">
+        <div class="sdpi-item-label"></div>
+        <button onclick="openWebsite()">Instructions</button>
+    </div>
+    <div class="sdpi-wrapper">
+        <div class="sdpi-item" id="dvCloudProjectId">
+            <div class="sdpi-item-label">Cloud Project Id</div>
+            <input class="sdpi-item-value sdGProperty" placeholder="" value="" id="cloudProjectId" oninput="setGlobalSettings()">
+        </div>
+        <div class="sdpi-item" id="dvClientId">
+            <div class="sdpi-item-label">Client Id</div>
+            <input class="sdpi-item-value sdGProperty" placeholder="" value="" id="clientId" oninput="setGlobalSettings()">
+        </div>
+        <div class="sdpi-item" id="dvClientSecret">
+            <div class="sdpi-item-label">Client Secret</div>
+            <input class="sdpi-item-value sdGProperty" placeholder="" value="" id="clientSecret" oninput="setGlobalSettings()">
+        </div>
+        <div class="sdpi-item" id="dvProjectId">
+            <div class="sdpi-item-label">Project Id</div>
+            <input class="sdpi-item-value sdGProperty" placeholder="" value="" id="projectId" oninput="setGlobalSettings()">
+        </div>
+        <div class="sdpi-item" id="dvSetup">
+            <div class="sdpi-item-label">Setup</div>
+            <button onclick="sendValueToPlugin(true,'Setup')">Setup</button>
+            <p>Click here after setting the Client Id, Client Secret, and Project Id</p>
+        </div>
+
+        <div class="sdpi-item" id="dvPresets">
+            <div class="sdpi-item-label" id="presetScaleLabel">Presets</div>
+            <div class="sdpi-item-value preset-editor">
+                <div id="presetRows" class="preset-rows" role="list" aria-label="Temperature presets"></div>
+                <div class="preset-editor-actions">
+                    <button type="button" id="addPresetBtn">+ Add preset</button>
+                    <span class="preset-hint">Up to 4</span>
+                </div>
+                <p id="presetValidation" class="preset-validation" hidden></p>
+                <p class="preset-hint">Short press cycles the preview; hold to apply. Empty rows are ignored.</p>
+                <input type="hidden" class="sdProperty" id="presets" value="">
+                <input type="hidden" class="sdProperty" id="temperatureScale" value="FAHRENHEIT">
+            </div>
+        </div>
+        <div class="sdpi-item" id="dvHoldSeconds">
+            <div class="sdpi-item-label">Hold to apply</div>
+            <select class="sdpi-item-value select sdProperty" id="holdSeconds" oninput="setSettings()">
+                <option value="0.75">0.75 seconds</option>
+                <option value="1" selected>1 second</option>
+                <option value="1.5">1.5 seconds</option>
+                <option value="2">2 seconds</option>
+                <option value="3">3 seconds</option>
+            </select>
+        </div>
+        <div class="sdpi-item" id="dvDevice">
+            <div class="sdpi-item-label">Device</div>
+            <select class="sdpi-item-value select sdProperty" id="device"></select>
+        </div>
+        <div class="sdpi-item" id="dvDiscord">
+            <div class="sdpi-item-label"></div>
+            <button onclick="openHelp()">Help</button>
+        </div>
+        <div class="sdpi-item" id="dvReset">
+            <div class="sdpi-item-label">Reset</div>
+            <button onclick="sendValueToPlugin(true,'Reset')">Reset</button>
+            <p>Click here to restart the setup process.</p>
+        </div>
+    </div>
+    <script src="temp-presets.js"></script>
+</body>
+</html>

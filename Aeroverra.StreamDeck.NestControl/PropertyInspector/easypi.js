@@ -118,21 +118,7 @@ function loadConfiguration(payload, isglobal) {
             continue;
         }
         if (isglobal == true && key === "piDevices") {
-
-            var elem = document.getElementById("device");
-            var items = JSON.parse(payload[key]);
-
-            elem.options.length = 0;
-            for (var idx = 0; idx < items.length; idx++) {
-                var opt = document.createElement('option');
-                opt.value = items[idx]["name"];
-                opt.text = items[idx]["displayName"];
-                elem.appendChild(opt);
-            }
-            elem.value = selectedDevice;
-            $("#device").val(selectedDevice).change();
-            var val2 = $("#wow").val();
-            $("#wow").val(val2 + "s2" + selectedDevice);
+            populateDeviceDropdown(payload[key]);
             continue;
         }
 
@@ -365,8 +351,49 @@ function prepareDOMElements(baseElement) {
     });
 }
 
+function populateDeviceDropdown(piDevicesPayload) {
+    var elem = document.getElementById("device");
+    if (!elem) {
+        return;
+    }
+
+    var items = [];
+    try {
+        if (Array.isArray(piDevicesPayload)) {
+            items = piDevicesPayload;
+        } else if (typeof piDevicesPayload === "string" && piDevicesPayload.length > 0) {
+            items = JSON.parse(piDevicesPayload);
+        }
+    } catch (err) {
+        console.log("populateDeviceDropdown failed: " + err);
+    }
+
+    elem.options.length = 0;
+
+    if (!items || items.length === 0) {
+        var emptyOpt = document.createElement("option");
+        emptyOpt.value = "";
+        emptyOpt.text = "No thermostats found — run Setup";
+        emptyOpt.disabled = true;
+        emptyOpt.selected = true;
+        elem.appendChild(emptyOpt);
+        return;
+    }
+
+    for (var idx = 0; idx < items.length; idx++) {
+        var opt = document.createElement("option");
+        opt.value = items[idx]["name"];
+        opt.text = items[idx]["displayName"] || "Thermostat";
+        elem.appendChild(opt);
+    }
+
+    if (selectedDevice) {
+        elem.value = selectedDevice;
+        $("#device").val(selectedDevice).change();
+    }
+}
+
 function initPropertyInspector() {
-    // Place to add functions
     prepareDOMElements(document);
 }
 

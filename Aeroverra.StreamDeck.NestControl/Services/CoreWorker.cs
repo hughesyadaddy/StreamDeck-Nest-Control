@@ -9,44 +9,47 @@ using System.Runtime.InteropServices;
 
 namespace Aeroverra.StreamDeck.NestControl.Services
 {
-    internal class CoreWorker : BackgroundService, IAsyncDisposable
+    internal sealed class CoreWorker : BackgroundService, IAsyncDisposable
     {
+        private const string OAuthRedirectUri = "http://localhost:20777/";
+        private const string OAuthFailureResponse = "Authentication failed. Verify Nest Control settings in Stream Deck, then run Setup again.";
+        private const string OAuthSuccessResponse = "Success! You can now close this window.";
+
         private readonly ILogger<CoreWorker> _logger;
         private readonly EventManager _eventsManager;
         private readonly IElgatoDispatcher _dispatcher;
-        private readonly IConfiguration _config;
         private readonly GlobalSettings _globalSettings;
         private readonly NestService _nestService;
-        private readonly SemaphoreSlim Lock = new SemaphoreSlim(1);
+        private readonly SemaphoreSlim _connectLock = new(1, 1);
+        private readonly CancellationTokenSource _lifetime = new();
 
-        private string LastContext = "";
-        private string LastUUID = "";
-        private readonly CancellationTokenSource _cancellationTokenSource = new CancellationTokenSource();
-        private Task? ListenerTask = null;
-        public bool isRunning = false;
+        private string _lastContext = string.Empty;
+        private string _lastUuid = string.Empty;
+        private Task? _listenerTask;
+        private bool _isRunning;
+        private bool _disposed;
 
-        public CoreWorker(ILogger<CoreWorker> logger, EventManager eventsManager, IElgatoDispatcher dispatcher, IConfiguration config, GlobalSettings globalSettings, NestService nestService)
+        public CoreWorker(
+            ILogger<CoreWorker> logger,
+            EventManager eventsManager,
+            IElgatoDispatcher dispatcher,
+            GlobalSettings globalSettings,
+            NestService nestService)
         {
             _logger = logger;
             _eventsManager = eventsManager;
             _dispatcher = dispatcher;
-            _config = config;
             _globalSettings = globalSettings;
             _nestService = nestService;
             _eventsManager.OnSendToPlugin += OnSendToPlugin;
-            _eventsManager.OnDidReceiveGlobalSettings += OnDidRecieveGlobalSettings;
-            _nestService.OnConnected += OnConnected;
+            _eventsManager.OnDidReceiveGlobalSettings += OnDidReceiveGlobalSettings;
+            _nestService.OnConnected += OnNestConnected;
         }
 
-        private void OnConnected(object? sender, EventArgs e)
+        private void OnNestConnected(object? sender, EventArgs e)
         {
-            isRunning = true;
-            var piDevices = PIDevice.GetList(_nestService.Devices.ToList());
-            _globalSettings.PiDevices = JsonConvert.SerializeObject(piDevices);
-            _globalSettings.SubscriptionId = _nestService.SubscriptionId;
-            _dispatcher.SetGlobalSettingsAsync(_globalSettings);
-            _dispatcher.SendToPropertyInspector(LastContext, LastUUID, new { Update = true });
-
+            _isRunning = true;
+            PublishDeviceListToPropertyInspector();
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -58,60 +61,154 @@ namespace Aeroverra.StreamDeck.NestControl.Services
                     await Task.Delay(1000, stoppingToken);
                 }
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException)
+            {
+            }
 
-            await _cancellationTokenSource.CancelAsync();
-
+            await _lifetime.CancelAsync();
             await _nestService.StopAsync();
-
         }
 
-        protected void OnSendToPlugin(object? sender, SendToPluginEvent e)
+        private void OnSendToPlugin(object? sender, SendToPluginEvent e)
         {
-            LastContext = e.Context;
-            LastUUID = e.Action;
+            _lastContext = e.Context;
+            _lastUuid = e.Action;
 
             if (e.payload["Reset"]?.ToObject<bool>() == true)
             {
                 Reset();
             }
+
             if (e.payload["Setup"]?.ToObject<bool>() == true)
             {
                 Setup();
             }
+
+            if (string.Equals(e.payload["property_inspector"]?.ToString(), "propertyInspectorConnected", StringComparison.Ordinal))
+            {
+                _ = RefreshDevicesForPropertyInspectorAsync();
+            }
         }
 
-        protected async void OnDidRecieveGlobalSettings(object? sender, DidReceiveGlobalSettingsEvent e)
+        private async Task RefreshDevicesForPropertyInspectorAsync()
         {
-            await Lock.WaitAsync();
-            await Task.Delay(1000);
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (_nestService.Devices.Count == 0 && _globalSettings.Setup == true)
+            {
+                try
+                {
+                    await ConnectFromStoredCredentialsAsync(_lifetime.Token);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not reconnect to Nest while property inspector was opened.");
+                }
+            }
+
+            PublishDeviceListToPropertyInspector();
+        }
+
+        private void PublishDeviceListToPropertyInspector()
+        {
+            var piDevices = PIDevice.GetList(_nestService.Devices);
+            _globalSettings.PiDevices = JsonConvert.SerializeObject(piDevices);
+            _globalSettings.SubscriptionId = _nestService.SubscriptionId;
+
+            _logger.LogInformation(
+                "Publishing {DeviceCount} thermostat(s) to property inspector: {DeviceNames}",
+                piDevices.Count,
+                piDevices.Count == 0
+                    ? "(none)"
+                    : string.Join(", ", piDevices.Select(d => d.DisplayName)));
+
+            _ = _dispatcher.SetGlobalSettingsAsync(_globalSettings);
+
+            if (!string.IsNullOrEmpty(_lastContext))
+            {
+                _dispatcher.SendToPropertyInspector(_lastContext, _lastUuid, new { Update = true });
+            }
+        }
+
+        private async void OnDidReceiveGlobalSettings(object? sender, DidReceiveGlobalSettingsEvent e)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            var entered = false;
             try
             {
-                if (isRunning == false && _globalSettings.Setup == true)
+                await _connectLock.WaitAsync(_lifetime.Token);
+                entered = true;
+                await Task.Delay(1000, _lifetime.Token);
+
+                if (!_isRunning && _globalSettings.Setup == true)
                 {
-                    await _nestService.ConnectWithRefreshToken(_globalSettings.ProjectId!, _globalSettings.CloudProjectId!, _globalSettings.ClientId!, _globalSettings.ClientSecret!, _globalSettings.RefreshToken!, _globalSettings.SubscriptionId!, _cancellationTokenSource.Token);
+                    _logger.LogInformation("Auto-connecting to Nest using stored credentials.");
+                    await ConnectFromStoredCredentialsAsync(_lifetime.Token);
                 }
+                else
+                {
+                    _logger.LogInformation(
+                        "Skipping Nest auto-connect. IsRunning={IsRunning}, Setup={Setup}",
+                        _isRunning,
+                        _globalSettings.Setup);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to connect Nest service from stored credentials.");
             }
             finally
             {
-                Lock.Release();
+                if (entered)
+                {
+                    _connectLock.Release();
+                }
             }
         }
 
-        private async Task ListenForCallback()
+        private async Task ConnectFromStoredCredentialsAsync(CancellationToken cancellationToken)
         {
-            using (HttpListener listener = new HttpListener())
+            if (string.IsNullOrWhiteSpace(_globalSettings.ProjectId)
+                || string.IsNullOrWhiteSpace(_globalSettings.CloudProjectId)
+                || string.IsNullOrWhiteSpace(_globalSettings.ClientId)
+                || string.IsNullOrWhiteSpace(_globalSettings.ClientSecret)
+                || string.IsNullOrWhiteSpace(_globalSettings.RefreshToken)
+                || string.IsNullOrWhiteSpace(_globalSettings.SubscriptionId))
             {
-                listener.Prefixes.Add("http://localhost:20777/");
-                listener.Start();
-                while (!_cancellationTokenSource.IsCancellationRequested)
-                {
-                    // Note: The GetContext method blocks while waiting for a request.
-                    HttpListenerContext context = await listener.GetContextAsync();
+                _logger.LogWarning("Stored Nest credentials are incomplete; skipping auto-connect.");
+                return;
+            }
 
-                    //Process request without blocking in order to handle multiple requests if needed
-                    _ = Task.Run(() => ProcessRequest(context, _cancellationTokenSource.Token));
-                }
+            await _nestService.ConnectWithRefreshToken(
+                _globalSettings.ProjectId,
+                _globalSettings.CloudProjectId,
+                _globalSettings.ClientId,
+                _globalSettings.ClientSecret,
+                _globalSettings.RefreshToken,
+                _globalSettings.SubscriptionId,
+                cancellationToken);
+        }
+
+        private async Task ListenForCallbackAsync()
+        {
+            using var listener = new HttpListener();
+            listener.Prefixes.Add(OAuthRedirectUri);
+            listener.Start();
+
+            while (!_lifetime.IsCancellationRequested)
+            {
+                var context = await listener.GetContextAsync().WaitAsync(_lifetime.Token);
+                _ = ProcessRequestAsync(context, _lifetime.Token);
             }
         }
 
@@ -120,25 +217,21 @@ namespace Aeroverra.StreamDeck.NestControl.Services
             _globalSettings.Setup = false;
             _globalSettings.PiDevices = null;
             _dispatcher.SetGlobalSettings(_globalSettings);
-            _dispatcher.SendToPropertyInspector(LastContext, LastUUID, new { Update = true });
-            return;
+            _dispatcher.SendToPropertyInspector(_lastContext, _lastUuid, new { Update = true });
         }
 
         private void Setup()
         {
             _dispatcher.GetGlobalSettings();
-            if (_globalSettings.ProjectId == null || _globalSettings.ClientId == null)
+            if (string.IsNullOrWhiteSpace(_globalSettings.ProjectId) || string.IsNullOrWhiteSpace(_globalSettings.ClientId))
             {
-                _logger.LogWarning("ProjectId or ClientId is not set in global settings. Can not start setup");
+                _logger.LogWarning("ProjectId or ClientId is not set in global settings. Cannot start setup.");
                 return;
             }
 
-            if (ListenerTask == null)
-            {
-                ListenerTask = ListenForCallback();
-            }
+            _listenerTask ??= ListenForCallbackAsync();
 
-            var url = NestService.GetAccountLinkUrl(_globalSettings.ProjectId, _globalSettings.ClientId, "http://localhost:20777");
+            var url = NestService.GetAccountLinkUrl(_globalSettings.ProjectId, _globalSettings.ClientId, OAuthRedirectUri.TrimEnd('/'));
 
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
@@ -151,29 +244,35 @@ namespace Aeroverra.StreamDeck.NestControl.Services
             }
         }
 
-        protected async Task ProcessRequest(HttpListenerContext _http, CancellationToken stoppingToken)
+        private async Task ProcessRequestAsync(HttpListenerContext httpContext, CancellationToken cancellationToken)
         {
             try
             {
-                HttpListenerRequest request = _http.Request;
+                var code = httpContext.Request.QueryString["code"];
+                var scope = httpContext.Request.QueryString["scope"];
+                var responseString = OAuthFailureResponse;
 
-                var query = _http.Request.QueryString;
-                var code = query["code"]?.ToString();
-                var scope = query["scope"]?.ToString();
-                string exception = "";
-                try
+                if (!string.IsNullOrWhiteSpace(code))
                 {
-                    await _nestService.ConnectWithCode(_globalSettings.ProjectId!, _globalSettings.CloudProjectId!, _globalSettings.ClientId!, _globalSettings.ClientSecret!, "http://localhost:20777", code!, _cancellationTokenSource.Token);
+                    try
+                    {
+                        await _nestService.ConnectWithCode(
+                            _globalSettings.ProjectId!,
+                            _globalSettings.CloudProjectId!,
+                            _globalSettings.ClientId!,
+                            _globalSettings.ClientSecret!,
+                            OAuthRedirectUri.TrimEnd('/'),
+                            code,
+                            cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "OAuth code exchange failed.");
+                        await Communication.LogAsync(LogLevel.Critical, ex.ToString());
+                    }
                 }
-                catch (Exception e)
-                {
-                    exception = e.ToString();
-                }
-                var responseString = $"Error please check your settings \r\n" +
-                    $"id:{_globalSettings.ClientId} partialsecret:{new string(_globalSettings.ClientSecret?.Take(5).ToArray())} projId: {_globalSettings.ProjectId} cloudproj{_globalSettings.CloudProjectId}\r\n" +
-                    $"Code: {code} Scope: {scope}\r\nException: {exception}";
 
-                if (_nestService.RefreshToken != null)
+                if (_nestService.RefreshToken is not null)
                 {
                     _globalSettings.Code = code;
                     _globalSettings.Scope = scope;
@@ -182,46 +281,51 @@ namespace Aeroverra.StreamDeck.NestControl.Services
                     _globalSettings.SubscriptionId = _nestService.SubscriptionId;
                     _dispatcher.SetGlobalSettings(_globalSettings);
                     await Communication.MetricsAsync();
-                    responseString = "Success! You can now close this window.";
+                    responseString = OAuthSuccessResponse;
                 }
-                else
+                else if (string.IsNullOrWhiteSpace(code))
                 {
-                    await Communication.LogAsync(LogLevel.Critical, responseString);
+                    await Communication.LogAsync(LogLevel.Critical, "OAuth callback did not include an authorization code.");
                 }
-                //Read Raw body
-                var rawBody = await new StreamReader(request.InputStream).ReadToEndAsync();
 
-                //Write Response
-                HttpListenerResponse response = _http.Response;
-                response.StatusCode = 200;
-                byte[] buffer = System.Text.Encoding.UTF8.GetBytes(responseString);
-                response.ContentLength64 = buffer.Length;
-                System.IO.Stream output = response.OutputStream;
-                await output.WriteAsync(buffer, 0, buffer.Length);
-                output.Close();
+                await WriteResponseAsync(httpContext, responseString);
             }
-            catch (Exception e)
+            catch (Exception ex)
             {
-
-                if (_http.Response.OutputStream.CanWrite)
-                {
-                    //Write Response
-                    HttpListenerResponse response = _http.Response;
-                    response.StatusCode = 200;
-                    byte[] buffer = System.Text.Encoding.UTF8.GetBytes(e.ToString());
-                    response.ContentLength64 = buffer.Length;
-                    System.IO.Stream output = response.OutputStream;
-                    await output.WriteAsync(buffer, 0, buffer.Length);
-                    output.Close();
-                }
+                _logger.LogError(ex, "OAuth callback processing failed.");
+                await WriteResponseAsync(httpContext, OAuthFailureResponse);
             }
-
         }
 
+        private static async Task WriteResponseAsync(HttpListenerContext httpContext, string responseString)
+        {
+            if (!httpContext.Response.OutputStream.CanWrite)
+            {
+                return;
+            }
+
+            var response = httpContext.Response;
+            response.StatusCode = 200;
+            var buffer = System.Text.Encoding.UTF8.GetBytes(responseString);
+            response.ContentLength64 = buffer.Length;
+            await response.OutputStream.WriteAsync(buffer);
+            response.OutputStream.Close();
+        }
 
         public async ValueTask DisposeAsync()
         {
+            if (_disposed)
+            {
+                return;
+            }
 
+            _disposed = true;
+            _eventsManager.OnSendToPlugin -= OnSendToPlugin;
+            _eventsManager.OnDidReceiveGlobalSettings -= OnDidReceiveGlobalSettings;
+            _nestService.OnConnected -= OnNestConnected;
+            await _lifetime.CancelAsync();
+            _lifetime.Dispose();
+            _connectLock.Dispose();
         }
     }
 }

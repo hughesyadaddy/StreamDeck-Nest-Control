@@ -1,6 +1,5 @@
 ﻿using Aeroverra.StreamDeck.NestControl.Services.Nest.Models;
 using Google.Apis.SmartDeviceManagement.v1.Data;
-using Microsoft.AspNetCore.Components;
 
 namespace Aeroverra.StreamDeck.NestControl.Services.Nest.Extensions
 {
@@ -21,6 +20,18 @@ namespace Aeroverra.StreamDeck.NestControl.Services.Nest.Extensions
             return device.Traits.GetTrait<ThermostatModeTrait>(NestConstants.TRAIT_THERMOSTAT_MODE);
         }
 
+        public static bool TryGetThermostatMode(this GoogleHomeEnterpriseSdmV1Device device, out ThermostatMode mode)
+        {
+            if (device.Traits.TryGetTrait<ThermostatModeTrait>(NestConstants.TRAIT_THERMOSTAT_MODE, out var trait))
+            {
+                mode = trait.Mode;
+                return true;
+            }
+
+            mode = ThermostatMode.OFF;
+            return false;
+        }
+
         public static ThermostatSetpointTrait GetThermostatSetPoint(this GoogleHomeEnterpriseSdmV1Device device)
         {
             return device.Traits.GetTrait<ThermostatSetpointTrait>(NestConstants.TRAIT_THERMOSTAT_SETPOINT);
@@ -29,6 +40,17 @@ namespace Aeroverra.StreamDeck.NestControl.Services.Nest.Extensions
         public static TemperatureTrait GetThermostatTemperature(this GoogleHomeEnterpriseSdmV1Device device)
         {
             return device.Traits.GetTrait<TemperatureTrait>(NestConstants.TRAIT_THERMOSTAT_Temperature);
+        }
+
+        public static TemperatureScale GetTemperatureScale(this GoogleHomeEnterpriseSdmV1Device device)
+        {
+            if (device.Traits.TryGetTrait<SettingsTrait>(NestConstants.TRAIT_SETTINGS, out var settings)
+                && Enum.TryParse(settings.TemperatureScale, ignoreCase: true, out TemperatureScale scale))
+            {
+                return scale;
+            }
+
+            return TemperatureScale.FAHRENHEIT;
         }
 
         public static string GetThermostatRenderedSetPoint(this GoogleHomeEnterpriseSdmV1Device device, TemperatureScale scale)
