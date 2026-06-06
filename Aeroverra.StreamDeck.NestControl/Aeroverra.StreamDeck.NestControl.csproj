@@ -4,7 +4,7 @@
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<UserSecretsId>dotnet-Aeroverra.StreamDeck.NestControl-B0263304-C0D9-4345-A97B-5C51678F12AA</UserSecretsId>
-		<Version>1.6.0</Version>
+		<Version>1.7.0</Version>
 		<Authors>Aeroverra aka Nicholas Halka</Authors>
 		<Company>AutoBuy LLC</Company>
 		<Product>NestControl</Product>
@@ -22,10 +22,6 @@
 		<PackageReference Include="Google.Cloud.PubSub.V1" Version="3.30.0" />
 		<PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.1" />
 		<PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
-	</ItemGroup>
-	<ItemGroup>
-		<ProjectReference Include="..\..\Aerove-Apis\Aerove Apis Internal\Aerove Apis Internal Client\Aerove Apis Internal Client.csproj" />
-		<!--<ProjectReference Include="..\..\Stream-Deck-CSharp-Client\Aeroverra.StreamDeck.Client\Aeroverra.StreamDeck.Client.csproj" />-->
 	</ItemGroup>
 	<ItemGroup>
 		<None Update="PropertyInspector\easypi.js">
@@ -47,6 +43,12 @@
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
 		<None Update="PropertyInspector\images\mode.png">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="PropertyInspector\images\preset.png">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="PropertyInspector\images\preset%402x.png">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
 		<None Update="PropertyInspector\images\redblue.png">
@@ -80,6 +82,12 @@
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
 		<None Update="PropertyInspector\TempUpDown.html">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="PropertyInspector\TempPresets.html">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="PropertyInspector\temp-presets-v2.js">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
 		<None Update="PropertyInspector\images\actionimage%402x.png">

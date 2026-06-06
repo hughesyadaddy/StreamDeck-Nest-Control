@@ -45,6 +45,13 @@ After setup is complete and a thermostat is selected, these actions are availabl
 - If the thermostat is Off, the first press switches to Cool to wake the system up.
 - Avoid spamming presses to stay under Google's rate limits.
 
+### Temperature Preset (Key)
+
+- Configure up to four preset temperatures in the action settings (40–95 °F or 4–35 °C, whole numbers).
+- Short press cycles the highlighted preset; the key briefly shows an amber **HOLD** band as a reminder.
+- Hold (default 1 s, configurable) applies the selected preset to Nest.
+- Heat + Cool mode centers the preset and keeps the minimum heat/cool spread Nest requires.
+
 ### Set Mode (Key)
 
 - Acts as a dedicated mode toggle for Heat, Cool, Heat + Cool, or Off (choose the variant you want on the key).
@@ -227,4 +234,32 @@ In this section you will authorize Nest Control to access your account by genera
    ![](https://i.imgur.com/rAWiBqb.png)
 
 [Privacy](https://aerove.aero.vi/Home/Privacy)
+
+## Local install (custom build)
+
+Use this to run your own build on one or more machines without waiting for the Elgato marketplace.
+
+**Requirements:** .NET SDK (see `Aeroverra.StreamDeck.NestControl.csproj`), Stream Deck 7.0+
+
+```bash
+# Build a self-contained plugin bundle
+./scripts/package-plugin.sh
+
+# macOS — copy into Stream Deck plugins (adjust path on other OSes)
+cp -R dist/aeroverra.streamdeck.nestcontrol.sdPlugin \
+  "$HOME/Library/Application Support/com.elgato.StreamDeck/Plugins/"
+```
+
+Quit Stream Deck fully, reopen, then run **Setup** once per machine (OAuth tokens live in Stream Deck global settings on that computer).
+
+**Iterating locally on macOS** after installing the marketplace plugin once:
+
+```bash
+./scripts/deploy-dev.sh   # publishes Debug build into the installed plugin folder
+./scripts/watch-logs.sh   # tail plugin logs
+```
+
+Windows plugin path: `%APPDATA%\Elgato\StreamDeck\Plugins\`
+
+Build on each OS/arch you need (`osx-arm64`, `osx-x64`, `win-x64`). The bundle is not cross-platform.
 

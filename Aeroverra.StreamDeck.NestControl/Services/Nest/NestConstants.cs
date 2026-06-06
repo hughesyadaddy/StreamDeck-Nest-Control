@@ -17,6 +17,7 @@
         public const string TRAIT_THERMOSTAT_MODE = "sdm.devices.traits.ThermostatMode";
         public const string TRAIT_THERMOSTAT_SETPOINT = "sdm.devices.traits.ThermostatTemperatureSetpoint";
         public const string TRAIT_THERMOSTAT_Temperature = "sdm.devices.traits.Temperature";
+        public const string TRAIT_SETTINGS = "sdm.devices.traits.Settings";
 
     }
 }

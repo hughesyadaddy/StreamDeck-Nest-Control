@@ -11,7 +11,7 @@
   "Name": "Nest Control",
   "Icon": "PropertyInspector/images/default",
   "URL": "https://aero.vi",
-  "Version": "1.6.0",
+  "Version": "1.7.0",
   "OS": [
     {
       "Platform": "mac",
@@ -107,6 +107,26 @@
       "Tooltip": "Sets the temperature down.",
       "UUID": "aeroverra.streamdeck.nestcontrol.temperaturedown",
       "PropertyInspectorPath": "PropertyInspector/TempUpDown.html"
+    },
+    {
+      "Icon": "PropertyInspector/images/preset",
+      "Name": "Temperature Preset",
+      "States": [
+        {
+          "Image": "PropertyInspector/images/aimage",
+          "TitleAlignment": "middle",
+          "FontSize": 16
+        },
+        {
+          "Image": "PropertyInspector/images/aimage",
+          "TitleAlignment": "middle",
+          "FontSize": 18
+        }
+      ],
+      "SupportedInMultiActions": true,
+      "Tooltip": "Tap to cycle temperature presets; hold to apply.",
+      "UUID": "aeroverra.streamdeck.nestcontrol.temperaturepreset",
+      "PropertyInspectorPath": "PropertyInspector/TempPresets.html"
     },
     {
       "Icon": "PropertyInspector/images/mode",

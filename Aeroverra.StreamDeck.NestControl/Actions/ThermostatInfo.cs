@@ -24,9 +24,9 @@ namespace Aeroverra.StreamDeck.NestControl.Actions
                     }
                     return val;
                 }
-                catch (Exception e)
+                catch (Exception)
                 {
-                    return 200;
+                    return 5000;
                 }
             }
         }
